@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Scanner Evento</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Roboto', sans-serif; }
+        .scanner-container video { width: 100% !important; height: auto !important; border-radius: 0.5rem; }
+    </style>
+</head>
+<body class="bg-gray-900 text-white">
+    <div id="root">
+        <div class="flex items-center justify-center h-screen text-white">
+            <p>Caricamento scanner...</p>
+        </div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getFirestore } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        try {
+            const firebaseConfig = {
+              apiKey: "AIzaSyDHt_0OZ5D-tEFj0CTKtROije15w6L1Zhc",
+              authDomain: "festa-luca30-a1b2c.firebaseapp.com",
+              projectId: "festa-luca30-a1b2c",
+              storageBucket: "festa-luca30-a1b2c.appspot.com",
+              messagingSenderId: "463454056685",
+              appId: "1:463454056685:web:07287e769ce684ff9d9ce4"
+            };
+
+            const app = initializeApp(firebaseConfig);
+            const db = getFirestore(app);
+
+            window.db = db;
+            window.firestore = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js");
+            
+            document.dispatchEvent(new CustomEvent('firebaseReady'));
+
+        } catch (e) {
+            console.error("Firebase initialization or authentication failed:", e);
+            document.getElementById('root').innerHTML = `<div class="min-h-screen flex items-center justify-center text-center text-white bg-red-800 p-4"><div><h1 class="text-2xl font-bold">Errore di Configurazione Firebase</h1></div></div>`;
+        }
+    </script>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useCallback } = React;
+
+        const CheckCircle = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>);
+        const XCircle = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>);
+        const LogOut = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>);
+        const Eye = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>);
+        const EyeOff = (props) => (<svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" y1="2" x2="22" y2="22"/></svg>);
+
+        const ScannerScreen = ({ user, onLogout }) => {
+            const [message, setMessage] = useState({ text: '', type: '', subtext: '' });
+            const [manualCode, setManualCode] = useState("");
+            const [manualError, setManualError] = useState("");
+            const scannerRef = useRef(null);
+            const { role, username } = user;
+            
+            const formatTimestamp = (timestamp) => {
+                if (!timestamp || !timestamp.toDate) return 'N/A';
+                return timestamp.toDate().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            };
+
+            const verifyGuestCode = useCallback(async (code) => {
+                if (scannerRef.current && scannerRef.current.isScanning) {
+                    try { await scannerRef.current.stop(); } catch (e) { /* Ignore */ }
+                }
+
+                const { getDoc, doc, updateDoc, serverTimestamp, collection, query, where, getDocs } = window.firestore;
+                
+                let guestDoc;
+                
+                try {
+                    // QR code gives the full ID, manual entry gives the shortId
+                    if (code.length > 8) { // From QR Scanner
+                        const guestRef = doc(window.db, "guests", code);
+                        const docSnap = await getDoc(guestRef);
+                        if (!docSnap.exists()) {
+                            setMessage({ text: 'CODICE NON VALIDO', type: 'error', subtext: 'Questo QR code non è valido.' });
+                            return;
+                        }
+                        guestDoc = docSnap;
+                    } else { // From manual input (shortId)
+                        const guestsRef = collection(window.db, "guests");
+                        const q = query(guestsRef, where("shortId", "==", code));
+                        const querySnapshot = await getDocs(q);
+
+                        if (querySnapshot.empty) {
+                            setMessage({ text: 'CODICE NON VALIDO', type: 'error', subtext: 'Questo codice non corrisponde a nessun invitato.' });
+                            return;
+                        }
+                        guestDoc = querySnapshot.docs[0];
+                    }
+
+                    const guestData = guestDoc.data();
+                    const guestRefToUpdate = guestDoc.ref;
+
+                    // Proceed with verification logic
+                    if (role === 'Rider') {
+                        if (guestData.status === 'In attesa') {
+                            await updateDoc(guestRefToUpdate, { 
+                                status: 'In viaggio', 
+                                scannedByRider: username,
+                                scannedAtRider: serverTimestamp()
+                            });
+                            setMessage({ text: `ACCESSO NAVETTA VALIDO`, type: 'success', subtext: `${guestData.name}\nValido per ${guestData.count || 1} persone.` });
+                        } else {
+                            setMessage({ text: 'CODICE GIÀ SCANSIONATO', type: 'error', subtext: `Da: ${guestData.scannedByRider || 'N/A'} alle ${formatTimestamp(guestData.scannedAtRider)}` });
+                        }
+                    } else if (role === 'Security') {
+                        if (guestData.status === 'In viaggio' || guestData.status === 'In attesa') {
+                             await updateDoc(guestRefToUpdate, { 
+                                 status: 'Arrivato',
+                                 scannedBySecurity: username,
+                                 scannedAtSecurity: serverTimestamp()
+                             });
+                             setMessage({ text: `BENVENUTO/A!`, type: 'success', subtext: `${guestData.name}\nValido per ${guestData.count || 1} persone.` });
+                        } else if (guestData.status === 'Arrivato') {
+                             setMessage({ text: 'ACCESSO GIÀ EFFETTUATO', type: 'error', subtext: `Da: ${guestData.scannedBySecurity || 'N/A'} alle ${formatTimestamp(guestData.scannedAtSecurity)}` });
+                        }
+                    }
+                } catch (error) {
+                    console.error("Error verifying code:", error);
+                    setMessage({ text: 'Errore di sistema.', type: 'error', subtext: 'Contatta l\'assistenza.' });
+                }
+            }, [role, username]);
+            
+            useEffect(() => {
+                if (message.text) return;
+
+                const scanner = new Html5Qrcode("qr-reader");
+                scannerRef.current = scanner;
+
+                const qrCodeSuccessCallback = (decodedText, decodedResult) => {
+                    verifyGuestCode(decodedText);
+                };
+                const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+
+                scanner.start({ facingMode: "environment" }, config, qrCodeSuccessCallback)
+                    .catch(err => { console.log(`Unable to start scanning, error: ${err}`); });
+                
+                return () => {
+                    if (scannerRef.current && scannerRef.current.isScanning) {
+                        scannerRef.current.stop().catch(err => {});
+                    }
+                };
+            }, [message.text, verifyGuestCode]);
+            
+            const handleManualSubmit = () => {
+                if (manualCode.trim() === "") {
+                    setManualError("Inserisci un codice o scansiona.");
+                    return;
+                }
+                setManualError("");
+                verifyGuestCode(manualCode.trim().toUpperCase());
+                setManualCode('');
+            };
+
+            const handleManualCodeChange = (e) => {
+                setManualCode(e.target.value);
+                if (manualError) setManualError("");
+            };
+
+            const resetScanner = () => {
+                setMessage({ text: '', type: '', subtext: '' });
+                setManualError("");
+            };
+
+            const getRoleName = () => role === 'Rider' ? 'Autista Navetta' : 'Security';
+
+            return (
+                <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-4">
+                    <div className="w-full max-w-md mx-auto">
+                        <div className="flex justify-between items-center mb-4">
+                           <div>
+                             <h1 className="text-2xl font-bold text-white">{getRoleName()}</h1>
+                             <p className="text-gray-400">{username}</p>
+                           </div>
+                           <button onClick={onLogout} className="text-gray-400 hover:text-white p-2 rounded-full bg-gray-800"><LogOut /></button>
+                        </div>
+
+                        {message.text ? (
+                            <div className={`p-6 rounded-lg text-center text-white transition-all duration-300 ${message.type === 'success' ? 'bg-green-500' : 'bg-red-600'}`}>
+                                {message.type === 'success' ? <CheckCircle className="w-16 h-16 mx-auto mb-4" /> : <XCircle className="w-16 h-16 mx-auto mb-4" />}
+                                <h2 className="text-3xl font-bold mb-2">{message.text}</h2>
+                                <p className="text-xl whitespace-pre-wrap mb-6">{message.subtext}</p>
+                                <button onClick={resetScanner} className="w-full p-3 bg-white text-black font-bold rounded-md hover:bg-gray-200 transition-colors">
+                                    Prossima Scansione
+                                </button>
+                            </div>
+                        ) : (
+                            <div>
+                                <div id="qr-reader" className="w-full scanner-container bg-gray-800 rounded-lg overflow-hidden"></div>
+                                <div className="p-4 mt-4 rounded-lg bg-gray-800">
+                                    <p className="text-sm text-center text-gray-400 mb-2">o inserisci il codice manualmente</p>
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            value={manualCode}
+                                            onChange={handleManualCodeChange}
+                                            onKeyUp={(e) => e.key === 'Enter' && handleManualSubmit()}
+                                            placeholder="Codice invito..."
+                                            className="flex-grow p-2 bg-gray-700 text-white rounded-md border border-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                            autoCapitalize="characters"
+                                            autoCorrect="off"
+                                            spellCheck="false"
+                                        />
+                                        <button onClick={handleManualSubmit} className="p-2 px-4 bg-indigo-600 text-white font-bold rounded-md hover:bg-indigo-700 transition-colors">Verifica</button>
+                                    </div>
+                                    {manualError && <p className="text-red-500 text-sm mt-2 text-center">{manualError}</p>}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        const LoginScreen = ({ onLogin }) => {
+            const [username, setUsername] = useState('');
+            const [password, setPassword] = useState('');
+            const [showPassword, setShowPassword] = useState(false);
+            const [error, setError] = useState('');
+
+            const users = [
+                { username: 'MARIAGIOVANNA', password: 'NAVETTA30A', role: 'Rider' },
+                { username: 'MIMMO', password: 'NAVETTA30B', role: 'Rider' },
+                { username: 'SECURITY', password: 'LUCA30PARTY', role: 'Security' }
+            ];
+
+            const handleLogin = () => {
+                const upperCaseUsername = username.toUpperCase();
+                const user = users.find(u => u.username === upperCaseUsername && u.password === password);
+
+                if (user) {
+                    onLogin(user);
+                } else {
+                    setError('Username o password non corretti.');
+                }
+            };
+
+            return (
+                <div className="min-h-screen bg-gray-800 flex items-center justify-center p-4">
+                    <div className="w-full max-w-sm p-8 bg-gray-900 rounded-lg shadow-lg">
+                        <h1 className="text-3xl font-bold text-center text-white mb-6">Accesso Operatori</h1>
+                        <div className="space-y-4">
+                            <input
+                                type="text"
+                                placeholder="Username"
+                                value={username}
+                                onChange={(e) => setUsername(e.target.value)}
+                                onKeyUp={(e) => e.key === 'Enter' && handleLogin()}
+                                className="w-full p-3 bg-gray-700 text-white rounded-md border border-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                autoCapitalize="characters"
+                                autoCorrect="off"
+                                spellCheck="false"
+                            />
+                            <div className="relative">
+                                <input 
+                                    type={showPassword ? "text" : "password"}
+                                    placeholder="Password"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    onKeyUp={(e) => e.key === 'Enter' && handleLogin()}
+                                    className="w-full p-3 bg-gray-700 text-white rounded-md border border-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 pr-10"
+                                />
+                                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-400 hover:text-white">
+                                    {showPassword ? <EyeOff /> : <Eye />}
+                                </button>
+                            </div>
+                            <button 
+                                onClick={handleLogin}
+                                className="w-full p-3 bg-indigo-600 text-white font-bold rounded-md hover:bg-indigo-700 transition-colors disabled:bg-gray-500"
+                                disabled={!username || !password}
+                            >
+                                Entra
+                            </button>
+                            {error && <p className="text-red-500 text-center mt-2">{error}</p>}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [user, setUser] = useState(null);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                try {
+                    const savedUser = localStorage.getItem('scannerUser');
+                    if (savedUser) {
+                        setUser(JSON.parse(savedUser));
+                    }
+                } catch (error) {
+                    console.error("Failed to parse user from localStorage", error);
+                    localStorage.removeItem('scannerUser');
+                }
+                setLoading(false);
+            }, []);
+
+            const handleLogin = (loggedInUser) => {
+                localStorage.setItem('scannerUser', JSON.stringify(loggedInUser));
+                setUser(loggedInUser);
+            };
+
+            const handleLogout = () => {
+                localStorage.removeItem('scannerUser');
+                setUser(null);
+            };
+
+            if (loading || !window.db || !window.firestore) {
+                return null;
+            }
+
+            if (!user) {
+                return <LoginScreen onLogin={handleLogin} />;
+            }
+
+            return <ScannerScreen user={user} onLogout={handleLogout} />;
+        };
+
+        document.addEventListener('firebaseReady', () => {
+            const container = document.getElementById('root');
+            const root = ReactDOM.createRoot(container);
+            root.render(<App />);
+        });
+    </script>
+</body>
+</html>
