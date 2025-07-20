@@ -88,15 +88,17 @@
             }, [now]);
 
             return requests.map(req => {
-                const adults = req.adults || 0;
-                const children = req.children || 0;
+                const adults = Number(req.adults) || 0;
+                const children = Number(req.children) || 0;
                 
                 let peopleString = '';
-                if (adults > 0) peopleString += `${adults} ${adults === 1 ? 'Adulto' : 'Adulti'}`;
+                if (adults > 0) peopleString += `${adults} A`;
                 if (children > 0) {
                     if (adults > 0) peopleString += ', ';
-                    peopleString += `${children} ${children === 1 ? 'Bambino' : 'Bambini'}`;
+                    peopleString += `${children} B`;
                 }
+                if (peopleString === '') peopleString = '1 Persona';
+
 
                 return (
                     <div key={req.id} className={`p-4 rounded-lg shadow-md flex items-center justify-between ${req.status === 'arrived' ? 'bg-green-800' : 'bg-gray-800'}`}>
@@ -138,8 +140,8 @@
                 await batch.commit();
             };
 
-            const totalArrivalPeople = arrivalRequests.reduce((sum, req) => sum + (req.adults || 0) + (req.children || 0), 0);
-            const totalReturnPeople = returnRequests.reduce((sum, req) => sum + (req.adults || 0) + (req.children || 0), 0);
+            const totalArrivalPeople = arrivalRequests.reduce((sum, req) => sum + (Number(req.adults) || 0) + (Number(req.children) || 0), 0);
+            const totalReturnPeople = returnRequests.reduce((sum, req) => sum + (Number(req.adults) || 0) + (Number(req.children) || 0), 0);
             
             return (
                 <div className="p-4 space-y-8">
